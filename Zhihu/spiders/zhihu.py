@@ -36,8 +36,6 @@ class ZhihuSpider(scrapy.Spider):
     session = requests.session()
     session.cookies = cookielib.LWPCookieJar(filename='cookies.txt')
 
-    # 生成知乎验证码用的时间戳
-    randomNum = str(int(time.time() * 1000))
 
     # def parse(self, response):
     #     print(response)
@@ -99,14 +97,10 @@ class ZhihuSpider(scrapy.Spider):
                 'captcha_type': 'cn',
             }
 
-        # # 测试登陆状态
-        # post_url = 'https://www.zhihu.com/login/phone_num'
-        # response_test = self.session.post(post_url, data=post_data, headers=self.headers)
-        # self.session.cookies.save()
-        # with open('zhihu_test.html', 'wb') as f:
-        #     f.write(response_test.content)
 
-        captcha_url = 'https://www.zhihu.com/captcha.gif?r={}&type=login&lang=cn'.format(self.randomNum)
+        # 生成知乎验证码用的时间戳
+        randomNum = str(int(time.time() * 1000))
+        captcha_url = 'https://www.zhihu.com/captcha.gif?r={}&type=login&lang=cn'.format(randomNum)
         yield scrapy.Request(captcha_url, headers=self.headers, meta={'post_data': post_data}, callback=self.get_captcha_login)
 
     def get_captcha_login(self, response):
@@ -125,13 +119,6 @@ class ZhihuSpider(scrapy.Spider):
 
             positions = self.z.Recognize('pic_captcha.gif')
             print(positions)
-
-        # if len(positions) == 2:
-        #     captcha = '{"img_size": [200, 44], "input_points": [[%.2f, %f], [%.2f, %f]]}' % (
-        #         positions[0][1] / 2, positions[0][0] / 2, positions[1][1] / 2, positions[1][0] / 2)
-        # elif len(positions) == 1:
-        #     captcha = '{"img_size": [200, 44], "input_points": [[%.2f, %f]]}' % (
-        #         positions[0][1] / 2, positions[0][0] / 2)
 
         pos_arr = []
         if len(positions) == 2:
@@ -174,9 +161,3 @@ class ZhihuSpider(scrapy.Spider):
         with open('zhihu_login_result.html', 'wb') as f:
             f.write(response.body)
 
-    # def after_login(self,response):
-    #     # 现在已经收到登录请求的响应了
-    #     if json.loads(response.body)['msg'].encode('utf8') == "登陆成功":
-    #         yield self.make_requests_from_url('http://www.zhihu.com/people/droiz')
-    #     else:
-    #         print("验证码错误")
