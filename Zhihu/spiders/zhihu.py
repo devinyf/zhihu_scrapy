@@ -10,9 +10,9 @@ try:
     import cookielib
 except:
     import http.cookiejar as cookielib
-try:
+try:  #py3
     from urllib import parse
-except:
+except:  # py2
     import urlparse as parse
 sys.path.append(
     '/Users/squall/Documents/WebCrawler/Scrapy_Project/Zhihu/zhihu')
@@ -34,38 +34,63 @@ class ZhihuSpider(scrapy.Spider):
 
     z = zheye()
     session = requests.session()
-    session.cookies = cookielib.LWPCookieJar(filename='cookies.txt')
+    # session.cookies = cookielib.LWPCookieJar(filename='cookies.txt')
 
 
-    # def parse(self, response):
-    #     print(response)
-    #     all_urls = response.css('a::attr(href)').extract()
-    #     all_urls = [parse.urljoin(response.url, url) for url in all_urls]
-    #     all_urls = filter(lambda x:True if x.startswith("http") else False, all_urls)
-    #     for url in all_urls:
-    #         match_obj = re.match('', url)
-    #         if match_obj:
-    #             # 如果提取到 question 相关的页面则下载后交由提取函数处理
-    #             request_url = match_obj.group(1)
-    #             yield scrapy.Request(request_url, headers=self.headers, callback=self.parse_question)
-    #         else:
-    #             # 如果不是 question 页面则直接进一步跟踪
-    #             yield scrapy.Request(url, headers=self.headers, callback=self.parse)
+    def parse(self, response):
+        """
+        提取出html页面中的所有url 并跟踪这些url进行进一步爬取
+        如果提取的url 格式为 ／question/xxx 就下载后直接进入解析函数
+        """
+        # print(response)
 
-    # def parse_question(self, response):
-    #     # 处理 question 页面， 从页面中提取出具体的 question item
-    #     if "QuestionHeader-title" in response.text:
-    #         # 处理新版本知乎
-    #         match_obj = re.match('', response.url)
-    #         if match_obj:
-    #             question_id = int(match_obj.group(2))
+        # 全站搜索过滤法
+        # all_urls = response.css('a::attr(href)').extract()
+        # all_urls = [parse.urljoin(response.url, url) for url in all_urls]
+        # all_urls = filter(lambda x:True if x.startswith("http") else False, all_urls)
+        # for url in all_urls:
+        #     match_obj = re.match('', url)
+        #     if match_obj:
+        #         # 如果提取到 question 相关的页面则下载后交由提取函数处理
+        #         request_url = match_obj.group(1)
+        #         yield scrapy.Request(request_url, headers=self.headers, callback=self.parse_question)
+        #     else:
+        #         # 如果不是 question 页面则直接进一步跟踪
+        #         yield scrapy.Request(url, headers=self.headers, callback=self.parse)
 
-    #         item_loader=
+        # css 提取法
+        question_list = response.css('.AnswerItem .ContentItem-title a::attr(href)').extract()
+        question_list = [parse.urljoin(response.url, url) for url in question_list]
+        print(question_list)
+        for url in question_list:
+            match_obj = re.match(r'(.*zhihu.com/question/(\d+?))(/|$)', url)
+            # print(match_obj.group(1))
+            if match_obj:
+                question_url = match_obj.group(1)
+                question_id = match_obj.group(2)
+                yield scrapy.Request(question_url, meta={'question_id': question_id}, headers=self.headers, callback=self.parse_question)
+            else:
+                print('匹配 question 失败')
+
+    def parse_question(self, response):
+        # 处理 question 页面， 从页面中提取出具体的 question item
+        if "QuestionHeader-title" in response.text:
+            # 处理新版本知乎
+            # 回答的api: https://www.zhihu.com/api/v4/questions/263413074/answers?limit=20&offset=23
+            # match_obj = re.match('', response.url)
+            # if match_obj:
+            #     question_id = int(match_obj.group(2))
+            question_id = response.meta['question_id']
+            print(response.url)
+            print(question_id)
+
+            # item_loader=
 
 
     def start_requests(self):
-        # 如果不设置 callback 会默认调用 parse 函数
-        return [scrapy.Request('https://www.zhihu.com/#signin', headers=self.headers, callback=self.login)]
+        # 当有登陆需求需要重写源码中的 start_request， 不重写此命令并没有指定 callback 会默认调用 parse 函数
+        yield scrapy.Request('https://www.zhihu.com/#signin', headers=self.headers, callback=self.login)
+        # return [scrapy.Request('https://www.zhihu.com/#signin', headers=self.headers, callback=self.login)]
 
     def get_xsrf(self, session):
         index_url = 'https://www.zhihu.com'
@@ -76,8 +101,6 @@ class ZhihuSpider(scrapy.Spider):
         # 此处的_xsrf 返回一个list
         _xsrf = re.findall(pattern, html)
         return _xsrf[0]
-
-
 
 
     def login(self, response):
@@ -109,13 +132,12 @@ class ZhihuSpider(scrapy.Spider):
         #     self.randomNum), headers=self.headers, stream=True)
         print(response.url, response.status)
         post_data = response.meta.get('post_data', '')
-        # r = response.url
 
         if response.status == 200:
             with open('pic_captcha.gif', 'wb') as f:
+                f.write(response.body)
                 # response.raw.decode_content = True
                 # shutil.copyfileobj(response.raw, f)
-                f.write(response.body)
 
             positions = self.z.Recognize('pic_captcha.gif')
             print(positions)
@@ -147,17 +169,19 @@ class ZhihuSpider(scrapy.Spider):
             formdata = post_data,
             headers = self.headers,
             callback = self.check_login
+            # callback = self.after_login
         )
 
 
     def check_login(self, response):
         print(response.text)
         text_json = json.loads(response.text)
-        if "msg" in text_json and text_json["msg"] == "登陆成功":
+        if text_json["msg"] == "登录成功":
             for url in self.start_urls:
                 yield scrapy.Request(url, dont_filter=True, headers=self.headers)
+        else:
+            print('验证码错误')
 
-        # 打印登陆状态
-        with open('zhihu_login_result.html', 'wb') as f:
-            f.write(response.body)
-
+        # 保存登陆状态
+        # with open('zhihu_login_result.html', 'wb') as f:
+        #     f.write(response.body)

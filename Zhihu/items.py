@@ -12,6 +12,9 @@ from scrapy.loader import ItemLoader
 from scrapy.loader.processors import MapCompose, TakeFirst, Join
 from w3lib.html import remove_tags
 
+from .settings import SQL_DATETIME_FORMAT
+from .utils.common import extract_num
+
 
 def return_value(value):
     # '''直接返回值'''
@@ -39,13 +42,8 @@ def handle_strip(value):
     return value.strip()
 
 
-def rm_slash(value):
-    # '''替换掉斜线'''
-    return value.replace('/', '')
-
-
 def get_nums(value):
-    # '''正则匹配数字'''
+    # '''正则 提取数字 保存为 int 格式'''
     match_re = re.match(r".*?(\d+).*", value)
     if match_re:
         nums = int(match_re.group(1))
@@ -77,6 +75,8 @@ def rm_mess(value):
         value = value.replace('\n', '')
     if '/' in value:
         value = value.replace('/', '')
+
+    value = value.strip()
 
     return value
 
