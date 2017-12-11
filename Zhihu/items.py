@@ -12,12 +12,28 @@ from scrapy.loader import ItemLoader
 from scrapy.loader.processors import MapCompose, TakeFirst, Join
 from w3lib.html import remove_tags
 
-from .settings import SQL_DATETIME_FORMAT
+
+from .settings import SQL_DATE_FORMAT
 from .utils.common import extract_num
+
+# from .settings import SQL_DATETIME_FORMAT
+# from .utils.common import extract_num
 
 
 def return_value(value):
     # '''直接返回值'''
+    return value
+
+
+def handle_empty(value):
+    if not value:
+        value = ' '
+    return value
+
+
+def handle_zero(value):
+    if not value:
+        value = 0
     return value
 
 
@@ -44,6 +60,7 @@ def handle_strip(value):
 
 def get_nums(value):
     # '''正则 提取数字 保存为 int 格式'''
+    value = ','.join(value)
     match_re = re.match(r".*?(\d+).*", value)
     if match_re:
         nums = int(match_re.group(1))
@@ -55,11 +72,11 @@ def get_nums(value):
 def date_convert(value):
     # '''日期由 str 转换为 date 格式'''
     try:
-        create_date = datetime.datetime.strptime(value, '%Y/%m/%d').date()
+        date = datetime.datetime.strptime(value, '%Y/%m/%d').date()
     except Exception as e:
-        create_date = datetime.datetime.now().date()
+        date = datetime.datetime.now().date()
 
-    return create_date
+    return date
 
 
 def handle_jobaddr(value):
@@ -81,20 +98,63 @@ def rm_mess(value):
     return value
 
 
-class ZhihuItemQuestionItem(scrapy.Item):
+class ZhihuItemLoader(ItemLoader):
+    # default_input_processor = MapCompose(rm_mess)
+    default_output_processor = TakeFirst()
+    # default_output_processor = Join(',')
+
+
+class ZhihuQuestionItem(scrapy.Item):
     # zhihu 问题 item:
-    zhihu_id = scrapy.Field()
-    topics = scrapy.Field()
-    url = scrapy.Field()
-    title = scrapy.Field()
-    content = scrapy.Field()
-    create_time = scrapy.Field()
-    update_time = scrapy.Field()
-    answer_num = scrapy.Field()
-    comments_num = scrapy.Field()
-    watch_user_num = scrapy.Field()
-    click_num = scrapy.Field()
-    crawl_time = scrapy.Field()
+    zhihu_id = scrapy.Field(
+        input_processor=get_nums,
+    )
+    topics = scrapy.Field(
+        output_processor=Join(',')
+    )
+    url = scrapy.Field(
+        input_processor=return_value,
+    )
+    title = scrapy.Field(
+        output_processor=Join(',')
+    )
+    content = scrapy.Field(
+        input_processor=handle_empty,
+        output_processor=Join(',')
+    )
+    answer_num = scrapy.Field(
+        input_processor=MapCompose(get_nums, handle_zero)
+    )
+    comments_num = scrapy.Field(
+        input_processor=MapCompose(get_nums, handle_zero)
+    )
+    watch_user_num = scrapy.Field(
+        input_processor=MapCompose(get_nums, handle_zero)
+    )
+    click_num = scrapy.Field(
+        input_processor=MapCompose(get_nums, handle_zero)
+    )
+    # update_time = scrapy.Field()
+    # create_time = scrapy.Field()
+    # crawl_time = scrapy.Field()
+
+    def get_insert_sql(self):
+        insert_sql = """
+            insert into zhihu_question(zhihu_id, topics, url, title,
+            content, answer_num, comments_num, watch_user_num, click_num, crawl_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE content=VALUES(content), answer_num=VALUES(answer_num),
+            comments_num=VALUES(comments_num),
+            watch_user_num=VALUES(watch_user_num), click_num=VALUES(click_num)
+        """
+
+        crawl_time = datetime.datetime.now().strftime(SQL_DATE_FORMAT)
+        # print(crawl_time)
+
+        params = (self['zhihu_id'], self['topics'], self['url'], self['title'], self['content'],
+                  self['answer_num'], self['comments_num'], self['watch_user_num'], self['click_num'], crawl_time)
+        print(params)
+        return insert_sql, params
 
 
 class ZhihuAnswerItem(scrapy.Item):
@@ -109,4 +169,21 @@ class ZhihuAnswerItem(scrapy.Item):
     create_time = scrapy.Field()
     update_time = scrapy.Field()
     crawl_time = scrapy.Field()
-    crawl_update_time = scrapy.Field()
+    # crawl_update_time = scrapy.Field()
+
+    def get_insert_sql(self):
+        insert_sql = """
+            insert into zhihu_answer(zhihu_id, url, question_id, author_id, content, praise_num, comments_num, create_time, update_time, crawl_time)
+            VALUE (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            ON DUPLICATE KEY UPDATE content=VALUES(content), comments_num=VALUES(comments_num), praise_num=VALUES(praise_num), update_time=VALUES(update_time)
+        """
+        create_time = datetime.datetime.fromtimestamp(
+            self['create_time']).strftime(SQL_DATE_FORMAT)
+        update_time = datetime.datetime.fromtimestamp(
+            self['update_time']).strftime(SQL_DATE_FORMAT)
+        crawl_time = datetime.datetime.now().strftime(SQL_DATE_FORMAT)
+        params = (self['zhihu_id'], self['url'], self['question_id'], self['author_id'], self['content'],
+                  self['parse_num'], self['comments_num'], create_time, update_time, crawl_time)
+
+        print(params)
+        return insert_sql, params
